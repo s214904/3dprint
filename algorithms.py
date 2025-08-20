@@ -1,7 +1,6 @@
 # Algorithms
 import cv2
 import numpy as np
-from skimage.measure import shannon_entropy
  
 def compute_tenengrad(gray):
     sobel_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)  # Sobel filter in X direction
@@ -24,4 +23,5 @@ def compute_sobel_variance(gray):
 
 def compute_laplacian(gray):
     laplacian = cv2.Laplacian(gray, cv2.CV_64F)  # Apply Laplacian filter
+
     return np.var(laplacian)  # Compute variance of Laplacian
