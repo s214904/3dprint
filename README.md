@@ -26,6 +26,7 @@ pip install numpy opencv-python matplotlib scipy pillow
 
 The autofocus system supports multiple focus measures and can operate either with a live camera or in simulation mode.
 Example usage in Python:
+```python
 methods = ['tenengrad', 'brenner', 'sobel_variance', 'laplacian']
 frames = 100            # Number of frames captured at each distance point
 desired_step = 0.050    # mm - desired step size (stepper motor)
@@ -36,7 +37,7 @@ cam = True              # If True: Use camera feed
                         # If False: Use simulated camera
 
 camera(methods, frames, desired_step, min_range, live_sharpness, cam)
-
+```
 
 ### Disclaimer / Liability
 
