@@ -6,19 +6,20 @@ from get_frame import get_frame
 from camera_feed import camera_feed
 from cleanup_camera import cleanup_camera
 from process_image import process_image
-from video_recorder import VideoRecorder
 import numpy as np
 import csv
 from datetime import datetime
 
-# TESTING MODE - Set to False when camera is available
-USE_MOCK_CAMERA = True
-
-def camera(methods):
+def camera(methods, frames, desired_step, min_range, live_sharpness, cam):
     """
     Alternative camera display using separate windows and enhanced text rendering
     for sharper, more readable text display.
     """
+    if cam:
+        USE_MOCK_CAMERA = False
+    else:
+        USE_MOCK_CAMERA = True
+
     # Initialize camera or mock camera
     if USE_MOCK_CAMERA:
         print("Using mock camera for testing...")
@@ -48,24 +49,30 @@ def camera(methods):
     # Initialize tracking variables
     frame_count = 0
     start_time = time.time()
-    dist_vec = []  # Initialize distance list for prediction algorithm
-    sharp_mat = {m: [] for m in methods}  # Store sharpness values for each method
-    repetition = 10 # How many frames to take at each step
 
     # Preallocate distance arrays
     d_clicks = 0
-    start = -0.5                 # mm
-    stop = 0.5                   # mm
-    step = 0.010                 # mm
-    d_vec = np.arange(start, stop + step, step)
-    
-    # Initialize video recorder
-    recorder = VideoRecorder()
+    base_unit = 0.00175          # mm - base movement unit, 1.75 microns
 
+    # Compute optimal step_multiplier (closest integer multiple of base_unit)
+    step_multiplier = round(desired_step / base_unit)
+    actual_step = step_multiplier * base_unit
+
+    # Compute minimum n_steps needed to cover the range
+    min_n_steps = int(np.ceil(min_range / actual_step))
+    n_steps = min_n_steps  # You can increase this if you want more range
+
+    # Create the distance vector
+    d_vec = np.linspace(-n_steps * actual_step, n_steps * actual_step, 2*n_steps + 1)
+    print(f"Stepper motor step size: {base_unit}")
+    print(f"Step size: {actual_step}")
+    print(f"Number of points: {len(d_vec)}")
+    print(f"d_vec range: [{d_vec[0]:.6f}, {d_vec[-1]:.6f}]")
+    
     try:
         print("---------CONTROLS:---------")
         print("'q': Quit")
-        print("'d': Input distance for prediction")
+        print("'d': Save datapoint for prediction")
         print("'p': Compute prediction distance")
         print("---------------------------")
         
@@ -98,8 +105,10 @@ def camera(methods):
             # Calculate sharpness metrics for every frame
             sharpness_values = {}
             for method in methods:
-                #sharpness_values[method] = compute_sharpness(gray_image, method)
-                sharpness_values[method] = 0 # Show 0 to increase speed
+                if live_sharpness:
+                    sharpness_values[method] = compute_sharpness(gray_image, method)
+                else:
+                    sharpness_values[method] = 0 # Show 0 to increase speed
 
             # Calculate performance statistics
             frame_count += 1
@@ -122,7 +131,7 @@ def camera(methods):
                 print(f"Distance: {dist:.4f} mm")
                 with open(csv_filename, 'a', newline='') as f:
                     writer = csv.writer(f)
-                    for i in range(repetition):
+                    for i in range(frames):
                         # Get frame from camera or create mock frame
                         if USE_MOCK_CAMERA:
                             # Create mock image data with some random noise
@@ -182,5 +191,12 @@ def camera(methods):
         if not USE_MOCK_CAMERA:
             cleanup_camera(cam, system, cam_list)
 if __name__ == "__main__":
-    methods = ['tenengrad', 'brenner']
-    camera(methods)
+    methods = ['tenengrad', 'brenner', 'sobel_variance', 'laplacian']
+    frames = 100            # Number of frames captured at each distance point
+    desired_step = 0.050    # mm - desired step size (stepper motor)
+    min_range = 0.5         # mm - minimum range (±min_range)
+    live_sharpness = False  # If True: Displays live sharpness metrics
+                            # If False: Displays 0 to increase speed
+    cam = True              # If True: Use camera feed
+                            # If False: Use simulated camera
+    camera(methods, frames, desired_step, min_range, live_sharpness, cam)

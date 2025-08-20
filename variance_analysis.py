@@ -32,9 +32,10 @@ def fit_gaussian_to_sharpness(distances, sharpness_values, method_name):
         c_init = (np.max(x_data) - np.min(x_data)) / 4  # Width estimate
         
         # Perform curve fitting
-        popt, pcov = curve_fit(gaussian, x_data, y_data, 
-                              p0=[a_init, b_init, c_init], 
-                              maxfev=5000)
+        #popt, pcov = curve_fit(gaussian, x_data, y_data, 
+        #                      p0=[a_init, b_init, c_init], 
+        #                      maxfev=5000)
+        popt, pcov = curve_fit(gaussian, x_data, y_data)
         
         # Extract fitted parameters
         amplitude, optimal_distance, width = popt
@@ -82,22 +83,30 @@ def fit_gaussian_to_sharpness(distances, sharpness_values, method_name):
         return {'success': False, 'error': str(e)}
 
 
-def calculate_required_frames_for_distance_tolerance(variance_results, gaussian_fits, frames, target_tolerance=0.010):
+def calculate_required_frames_for_distance_tolerance(variance_results, gaussian_fits, frames_per_distance, target_tolerance=0.010):
     """Calculate frames required to achieve target tolerance."""
     frame_requirements = {}
     
     for method in variance_results.keys():
         if method in gaussian_fits and gaussian_fits[method]['success']:
             current_ci_half_width = gaussian_fits[method]['ci_half_width']
-            current_frames = frames
+            current_frames_per_distance = frames_per_distance
+            n_distance_points = len(variance_results[method]['variance_data'])
             
             if current_ci_half_width > 0 and target_tolerance > 0:
+                # The CI depends on both the number of distance points and frames per distance
+                # Assuming we keep the same number of distance points, scale frames per distance
                 frames_ratio = (current_ci_half_width / target_tolerance) ** 2
-                required_frames = current_frames * frames_ratio
+                required_frames_per_distance = current_frames_per_distance * frames_ratio
+                total_required_frames = required_frames_per_distance * n_distance_points
                 
                 frame_requirements[method] = {
                     'current_ci_half_width': current_ci_half_width,
-                    'required_frames_estimate': required_frames
+                    'current_frames_per_distance': current_frames_per_distance,
+                    'required_frames_per_distance': required_frames_per_distance,
+                    'n_distance_points': n_distance_points,
+                    'total_required_frames': total_required_frames,
+                    'scaling_assumption': 'frames_per_distance_only'
                 }
         else:
             frame_requirements[method] = {'error': 'Gaussian fit failed'}
@@ -174,89 +183,130 @@ def analyze_gaussian_fits(variance_results):
 
 
 def plot_variance_analysis(results, gaussian_fits=None):
-    """Create plots for variance analysis results."""
+    """Create 3 separate plot windows for variance analysis results."""
     methods = list(results.keys())
     
-    # Create subplots
-    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
-    fig.suptitle('Gaussian Fitting Analysis of Sharpness Metrics', fontsize=16, fontweight='bold')
-    
     # Plot 1: Standard Error of Mean vs Distance
-    ax1 = axes[0]
-    for method in methods:
-        variance_data = results[method]['variance_data']
-        distances = [d['distance'] for d in variance_data]
-        sems = [d['sem'] for d in variance_data]
-        ax1.plot(distances, sems, 'o-', label=method.capitalize(), alpha=0.7)
-    
-    ax1.set_xlabel('Distance')
-    ax1.set_ylabel('Standard Error of Mean')
-    ax1.set_title('Standard Error vs Distance')
-    ax1.legend()
-    ax1.grid(True, alpha=0.3)
+    if 1 == 0:
+        plt.figure(figsize=(8, 6))
+        for method in methods:
+            variance_data = results[method]['variance_data']
+            distances = [d['distance'] for d in variance_data]
+            sems = [d['sem'] for d in variance_data]
+            plt.plot(distances, sems, 'o-', label=method.capitalize(), alpha=0.7)
+        
+        plt.xlabel('Distance (mm)')
+        plt.ylabel('Standard Error of Mean')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
     
     # Plot 2: Gaussian Fits
-    ax2 = axes[1]
-    if gaussian_fits:
-        for method in methods:
-            if method in gaussian_fits and gaussian_fits[method]['success']:
-                variance_data = results[method]['variance_data']
-                distances = np.array([d['distance'] for d in variance_data])
-                means = np.array([d['mean'] for d in variance_data])
+    if 1 == 1:
+        plt.figure(figsize=(12, 8))
+        if gaussian_fits:
+            # Store line colors for each method to match with vertical lines
+            method_colors = {}
+            
+            for method in methods:
+                if method in gaussian_fits and gaussian_fits[method]['success']:
+                    variance_data = results[method]['variance_data']
+                    distances = np.array([d['distance'] for d in variance_data])
+                    means = np.array([d['mean'] for d in variance_data])
+                    
+                    fit_result = gaussian_fits[method]
+                    
+                    # Plot data points (no label for legend)
+                    scatter = plt.scatter(distances, means, alpha=0.6, s=50)
+                    
+                    # Plot Gaussian fit with combined label including R²
+                    x_smooth = np.linspace(np.min(distances), np.max(distances), 100)
+                    y_smooth = gaussian(x_smooth, *fit_result['fitted_params'])
+                    line = plt.plot(x_smooth, y_smooth, '-', alpha=0.8, linewidth=3,
+                            label=f'{method.capitalize()} (R²={fit_result["r_squared"]:.3f})')
+                    
+                    # Store the color for this method
+                    method_colors[method.lower()] = line[0].get_color()
+            
+            # Add vertical lines and collect text for top left corner
+            optimal_texts = []
+            
+            for method in methods:
+                if method.lower() in ['brenner', 'tenengrad'] and method in gaussian_fits and gaussian_fits[method]['success']:
+                    fit_result = gaussian_fits[method]
+                    optimal_dist = fit_result['optimal_distance']
+                    ci_half_width = fit_result['ci_half_width']
+                    
+                    # Add vertical line at optimal distance with matching color
+                    method_color = method_colors.get(method.lower(), 'gray')
+                    plt.axvline(optimal_dist, color=method_color, 
+                               linestyle='--', linewidth=2, alpha=0.8)
+                    
+                    # Collect text for top left corner with 95% CI notation
+                    optimal_texts.append(f'{method.capitalize()}: {optimal_dist:.4f} mm (95% CI ± {ci_half_width:.4f})')
+            
+            # Add both texts in top left corner, two lines
+            if optimal_texts:
+                ax = plt.gca()
+                xlim = ax.get_xlim()
+                ylim = ax.get_ylim()
+                x_text = xlim[0] + (xlim[1] - xlim[0]) * 0.01  # 2% from left edge
+                y_start = ylim[1] - (ylim[1] - ylim[0]) * 0.05  # 5% from top edge
                 
-                fit_result = gaussian_fits[method]
-                
-                # Plot data points (no label for legend)
-                ax2.scatter(distances, means, alpha=0.6, s=30)
-                
-                # Plot Gaussian fit with combined label including R²
-                x_smooth = np.linspace(np.min(distances), np.max(distances), 100)
-                y_smooth = gaussian(x_smooth, *fit_result['fitted_params'])
-                ax2.plot(x_smooth, y_smooth, '-', alpha=0.8, linewidth=2,
-                        label=f'{method.capitalize()} (R²={fit_result["r_squared"]:.3f})')
+                for i, text in enumerate(optimal_texts):
+                    y_text = y_start - i * (ylim[1] - ylim[0]) * 0.08  # 8% spacing between lines
+                    plt.text(x_text, y_text, text, ha='left', va='top', fontsize=18)
+        
+        plt.xlabel('Distance (mm)', fontsize=24)
+        plt.ylabel('Normalized Sharpness', fontsize=24)
+        plt.legend(loc='upper right', fontsize=22)
+        plt.grid(True, alpha=0.3)
+        plt.xticks(fontsize=22)
+        plt.yticks(fontsize=22)
+        plt.tight_layout()
     
-    ax2.set_xlabel('Distance')
-    ax2.set_ylabel('Normalized Sharpness')
-    ax2.set_title('Gaussian Curve Fits')
-    ax2.legend()
-    ax2.grid(True, alpha=0.3)
-    
+        # Save the Gaussian fit plot
+        from datetime import datetime
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f'gaussian_fits_{timestamp}.png'
+        plt.savefig(filename, dpi=300, bbox_inches='tight')
+        print(f"Gaussian fit plot saved as: {filename}")
+
     # Plot 3: Confidence Intervals
-    ax3 = axes[2]
-    if gaussian_fits:
-        method_positions = np.arange(len(methods))
+    if 1 == 0:
+        plt.figure(figsize=(8, 6))
+        if gaussian_fits:
+            method_positions = np.arange(len(methods))
+            
+            for i, method in enumerate(methods):
+                if method in gaussian_fits and gaussian_fits[method]['success']:
+                    fit_result = gaussian_fits[method]
+                    optimal_dist = fit_result['optimal_distance']
+                    ci_lower = fit_result['ci_lower']
+                    ci_upper = fit_result['ci_upper']
+                    
+                    # Plot confidence interval as error bar
+                    plt.errorbar(i, optimal_dist, 
+                            yerr=[[optimal_dist - ci_lower], [ci_upper - optimal_dist]], 
+                            fmt='o', capsize=5, capthick=2, 
+                            label=f'{method.capitalize()}')
+                    
+                    # Add text showing CI width
+                    ci_width = fit_result['ci_half_width']
+                    plt.text(i, optimal_dist + ci_width + 0.001, f'±{ci_width:.4f}', 
+                            ha='center', va='bottom', fontsize=9)
+            
+            plt.xticks(method_positions, [m.capitalize() for m in methods])
+            plt.ylabel('Optimal Distance (mm)')
+            plt.grid(True, alpha=0.3)
+            
+            # Add horizontal line at zero if within range
+            ylim = plt.gca().get_ylim()
+            if ylim[0] <= 0 <= ylim[1]:
+                plt.axhline(y=0, color='red', linestyle='--', alpha=0.5, label='Zero distance')
+                plt.legend()
         
-        for i, method in enumerate(methods):
-            if method in gaussian_fits and gaussian_fits[method]['success']:
-                fit_result = gaussian_fits[method]
-                optimal_dist = fit_result['optimal_distance']
-                ci_lower = fit_result['ci_lower']
-                ci_upper = fit_result['ci_upper']
-                
-                # Plot confidence interval as error bar
-                ax3.errorbar(i, optimal_dist, 
-                           yerr=[[optimal_dist - ci_lower], [ci_upper - optimal_dist]], 
-                           fmt='o', capsize=5, capthick=2, 
-                           label=f'{method.capitalize()}')
-                
-                # Add text showing CI width
-                ci_width = fit_result['ci_half_width']
-                ax3.text(i, optimal_dist + ci_width + 0.001, f'±{ci_width:.4f}', 
-                        ha='center', va='bottom', fontsize=9)
-        
-        ax3.set_xticks(method_positions)
-        ax3.set_xticklabels([m.capitalize() for m in methods])
-        ax3.set_ylabel('Optimal Distance')
-        ax3.set_title('95% CI for Optimal Distance')
-        ax3.grid(True, alpha=0.3)
-        
-        # Add horizontal line at zero if within range
-        ylim = ax3.get_ylim()
-        if ylim[0] <= 0 <= ylim[1]:
-            ax3.axhline(y=0, color='red', linestyle='--', alpha=0.5, label='Zero distance')
-            ax3.legend()
-    
-    plt.tight_layout()
+        plt.tight_layout()
     plt.show()
 
 
@@ -285,19 +335,33 @@ def variance_analysis_main(methods, filename='Video/sharpness_20250815_145033.cs
     for method in methods:
         if method in gaussian_fits and gaussian_fits[method]['success']:
             fit_result = gaussian_fits[method]
-            print(f"{method.upper():12}: Optimal = {fit_result['optimal_distance']:.6f}, "
+            optimal_dist = fit_result['optimal_distance']
+            
+            # Calculate closest integer multiple of 0.00175
+            base_unit = 0.00175  # mm
+            closest_multiple = round(optimal_dist / base_unit) * base_unit
+            multiple_index = round(optimal_dist / base_unit)
+            
+            print(f"{method.upper():12}: Optimal = {optimal_dist:.6f}, "
                   f"CI = [{fit_result['ci_lower']:.6f}, {fit_result['ci_upper']:.6f}], "
                   f"R² = {fit_result['r_squared']:.4f}")
+            print(f"{'':12}  Closest 0.00175 multiple: {closest_multiple:.6f} ({multiple_index:+d} × 0.00175)")
             
             # Frame requirements for distance tolerance
-            if method in frame_requirements and 'required_frames_estimate' in frame_requirements[method]:
+            if method in frame_requirements and 'required_frames_per_distance' in frame_requirements[method]:
                 req = frame_requirements[method]
                 if req['current_ci_half_width'] < target_tolerance:
                     print(f"{'':12}  Current CI (±{req['current_ci_half_width']:.6f}) is already better than target (±{target_tolerance:.3f})")
-                    print(f"{'':12}  Could achieve ±{target_tolerance:.3f} with just {req['required_frames_estimate']:.1f} frames")
+                    print(f"{'':12}  Could achieve ±{target_tolerance:.3f} with {req['required_frames_per_distance']:.1f} frames per distance")
+                    print(f"{'':12}  Total frames: {req['total_required_frames']:.0f} (across {req['n_distance_points']} distances)")
                 else:
-                    print(f"{'':12}  Need {req['required_frames_estimate']:.0f} frames to achieve ±{target_tolerance:.3f} tolerance")
-                    print(f"{'':12}  (current CI: ±{req['current_ci_half_width']:.6f})")
+                    print(f"{'':12}  Need {req['required_frames_per_distance']:.1f} frames per distance to achieve ±{target_tolerance:.3f} tolerance")
+                    print(f"{'':12}  Total frames needed: {req['total_required_frames']:.0f} (across {req['n_distance_points']} distances)")
+                    print(f"{'':12}  Current: {req['current_frames_per_distance']} frames per distance, CI: ±{req['current_ci_half_width']:.6f}")
+            elif method in frame_requirements and 'error' in frame_requirements[method]:
+                print(f"{'':12}  Frame estimation failed: {frame_requirements[method]['error']}")
+            else:
+                print(f"{'':12}  No frame requirements calculated")
         else:
             print(f"{method.upper():12}: Gaussian fitting failed")
     

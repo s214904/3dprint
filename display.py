@@ -58,7 +58,7 @@ def create_display_canvas(color_image, methods, sharpness_values, frame_count, f
     draw.text((x, y), 'System Controls', fill=(0, 0, 0), font=font_large)
     y += 35
 
-    controls = ['Q - Quit', 'D - Input distance', 'P - Compute prediction distance']
+    controls = ['Q - Quit', 'D - Save datapoint', 'P - Compute prediction distance']
     for control in controls:
         draw.text((x, y), control, fill=(0, 0, 0), font=font_small)
         y += 30
