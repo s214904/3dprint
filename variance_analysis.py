@@ -5,9 +5,9 @@ from scipy import stats
 from scipy.optimize import curve_fit
 
 
-def gaussian(x, a, b, c):
+def gaussian(x, a, b, c, d):
     """Gaussian function for curve fitting."""
-    return a * np.exp(-((x - b) ** 2) / (2 * c ** 2))
+    return d + a * np.exp(-((x - b) ** 2) / (2 * c ** 2))
 
 
 def fit_gaussian_to_sharpness(distances, sharpness_values, method_name):
@@ -30,15 +30,15 @@ def fit_gaussian_to_sharpness(distances, sharpness_values, method_name):
         a_init = np.max(y_data) - np.min(y_data)  # Amplitude
         b_init = x_data[np.argmax(y_data)]        # Optimal distance (peak location)
         c_init = (np.max(x_data) - np.min(x_data)) / 4  # Width estimate
+        d_init = np.min(y_data)  # Offset estimate (baseline)
         
-        # Perform curve fitting
-        #popt, pcov = curve_fit(gaussian, x_data, y_data, 
-        #                      p0=[a_init, b_init, c_init], 
-        #                      maxfev=5000)
-        popt, pcov = curve_fit(gaussian, x_data, y_data)
+        # Perform curve fitting with initial parameter estimates
+        popt, pcov = curve_fit(gaussian, x_data, y_data, 
+                              p0=[a_init, b_init, c_init, d_init], 
+                              maxfev=5000)
         
         # Extract fitted parameters
-        amplitude, optimal_distance, width = popt
+        amplitude, optimal_distance, width, offset = popt
         
         # Calculate parameter uncertainties (standard errors)
         parameter_errors = np.sqrt(np.diag(pcov))
@@ -368,4 +368,5 @@ def variance_analysis_main(methods, filename='Video/sharpness_20250815_145033.cs
     # Create plots
     plot_variance_analysis(results, gaussian_fits)
     
+
     return results
